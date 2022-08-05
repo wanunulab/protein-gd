@@ -1,17 +1,23 @@
 # protein-gd
 ## Data analysis code for Yu et al. (2022)
-#### Requirements:
+### Requirements:
+
 Python >= 3.9
+
 numpy
+
 scipy
+
 matplotlib
+
 tslearn == 0.5.2
+
 scikit-learn 
 
-#### Installation:
+### Installation:
 Simply clone the repository, download the data files, and run through the jupyter notebooks.
 
-#### Usage: 
+### Usage: 
 [DTW_Analysis.ipynb](https://github.com/wanunulab/protein-gd/blob/master/DTW_Analysis.ipynb) contains the script for the dynamic time warping analysis of protein translocation unidirectionality.
 
 [GBC_Analysis.ipynb](https://github.com/wanunulab/protein-gd/blob/master/GBC_Analysis.ipynb) contains the script for machine learning classification and discrimination of protein translocation events via a Gradient Boosting Classifier (GBC) model.
