@@ -433,22 +433,6 @@ class Event( Segment ):
                         labels.append( state.name[:-6] )
                         new_model = True
                         i += 1
-            elif color_arg=="bins":
-                seg_idx=kwargs["color_idx"]
-                color_bins=kwargs["color_bins"]
-                #print("Source: " + str(type(seg_idx[0])))
-                #print("Val: " + seg_idx[0])
-                #print("color idx: " + str(seg_idx))
-                #print("color bins: " + str(color_bins))
-                color=["" for i in xrange(self.n)]
-                for idx, seg_id in enumerate(seg_idx):
-                    color[idx] = color_bins[seg_id]
-              
-                    
-                #for (seg_id,color_bin) in zip(seg_idx,color_bins):
-                #    for idx in seg_id:
-                #        color[idx]=color_bin
-                        
             else:
                 color = kwargs['color']
 
@@ -475,7 +459,7 @@ class Event( Segment ):
         else:
             for c, segment, l in it.zip_longest( color, self.segments, labels ):
                 plt.plot( np.arange(0, len( segment.current ) )/self.second + segment.start, 
-                    segment.current, color=c, label=l)#, **kwargs ) #Why did they leave kwargs here?
+                    segment.current, color=c, label=l, **kwargs )
 
                 # If plotting the lines, plot the line through the means
                 if lines:
@@ -483,10 +467,8 @@ class Event( Segment ):
 
             # If plotting the lines, plot the transitions from one segment to another
             if lines:
-                for seg, next_seg in zip( self.segments[:-1], self.segments[1:] ):
+                for seg, next_seg in it.izip( self.segments[:-1], self.segments[1:] ):
                     plt.plot( [seg.end, seg.end], [ seg.mean, next_seg.mean ], **line_kwargs )
-                #for seg, next_seg in it.izip( self.segments[:-1], self.segments[1:] ):
-                #    plt.plot( [seg.end, seg.end], [ seg.mean, next_seg.mean ], **line_kwargs )
 
         # If labels have been passed in, then add the legend.
         if len(labels) > 0:
@@ -654,7 +636,7 @@ class File( Segment ):
 
     def plot( self, limits=None, color_events=True, event_downsample=5, 
         file_downsample=100, downsample=10, file_kwargs={ 'c':'k', 'alpha':0.66 }, 
-        event_kwargs={ 'c': 'c', 'alpha':0.66 }, **kwargs ):
+        event_kwargs={ 'c': 'c', 'alpha':0.66 }, multiclass=False, classcolors=['g','r'], **kwargs ):
         '''
         Allows you to plot a file, optionally coloring the events in a file. You may also give a
         dictionary of settings to color the event by, and dictionary of settings to color the
@@ -671,7 +653,7 @@ class File( Segment ):
 
         # If you want to apply special settings to the events and the rest of the file
         # separately, you need to go through each part and plot it individually.
-        if color_events and self.n > 0:
+        if color_events and self.n > 0 and not multiclass:#added multiclass flag
             # Pick out all of the events, as opposed to non-event related current
             # in the file.
             events = [ event for event in self.events if event.start > start and event.end < end ]
@@ -700,6 +682,40 @@ class File( Segment ):
                 current = self.current[ si:ei:file_downsample ]
                 plt.plot( np.arange( 0, len(current) )*step*file_downsample+event.end, 
                     current, **file_kwargs )
+        ##################################################################################################
+        elif color_events and self.n > 0 and multiclass:#added multiclass flag
+            # Pick out all of the events, as opposed to non-event related current
+            # in the file.
+            events = [ event for event in self.events if event.start > start and event.end < end ]
+            #print("events=" ,events)
+            # If there are no events, just plot using the given settings.
+            if len(events) == 0:
+                current = self.current[ int(start*second):int(end*second):downsample ]
+                plt.plot( np.arange( 0, len(current) )*step*downsample+start, current, **file_kwargs)
+                #plt.plot( np.arange( start*second, end*second ), 
+                #    self.current[ int(start*second):int(end*second) ], **kwargs )
+
+            else:
+                current = self.current[ int( start*second ):int( events[0].start*second ):\
+                    file_downsample ]
+                plt.plot( np.arange(0, len(current) )*step*file_downsample+start, 
+                    current, **file_kwargs ) 
+
+            for i, event in enumerate( events ):
+                si, ei = int(event.start*second), int(event.end*second)
+                current = self.current[ si:ei:event_downsample ]
+                #print("xrange= ",(len(current)-1)*step*event_downsample+start)
+                #if event.classification is not None:
+                plt.plot( np.arange(0, len(current) )*step*event_downsample+event.start, 
+                         current, color=classcolors[event.classification], alpha=1 )
+                #else:
+                #    continue
+
+                si, ei = ei, int( end*second ) if i == len(events)-1 else int( events[i+1].start*self.second )
+                current = self.current[ si:ei:file_downsample ]
+                plt.plot( np.arange( 0, len(current) )*step*file_downsample+event.end, 
+                    current, **file_kwargs )
+        #########################################################################################################
 
         else:
             print("second: ",second)
