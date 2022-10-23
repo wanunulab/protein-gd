@@ -1,3 +1,7 @@
+#Project-specific directories
+extras/
+dtw_fig_exports/
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
