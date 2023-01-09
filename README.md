@@ -1,5 +1,5 @@
 # protein-gd
-## Data analysis code for Yu et al. (2022)
+## Data analysis code for [Yu et al. (2023)](https://doi.org/10.1038/s41587-022-01598-3)
 ### Requirements:
 
 Python >= 3.9
@@ -28,5 +28,6 @@ The [pypore](https://github.com/jmschrei/PyPore) package was originally written 
 
 ## Cite us
 Please cite this work as:
-Yu et al ...
+
+Yu, L., Kang, X., Li, F. et al. Unidirectional single-file transport of full-length proteins through a nanopore. Nat Biotechnol (2023). https://doi.org/10.1038/s41587-022-01598-3
   
