@@ -18,8 +18,8 @@ from PyPore.core import *
 from PyPore.parsers import *
 from PyPore.DataTypes import *
 
-from PyPore.calignment import cSegmentAligner
-from yahmm import *
+##from PyPore.calignment import cSegmentAligner
+##from yahmm import *
 
 NEGINF = -999999999
 

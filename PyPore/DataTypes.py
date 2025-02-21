@@ -35,14 +35,14 @@ import numpy as np
 from PyPore.load_bdat import *
 #from PyPore.read_abf import *
 from matplotlib import pyplot as plt
-from PyPore.hmm import *
+##from PyPore.hmm import *
 from PyPore.core import *
 try:
     from PyPore.database import *
 except:
     pass    
 from PyPore.parsers import *
-from PyPore.alignment import *
+##from PyPore.alignment import *
                  
 import json
 import time

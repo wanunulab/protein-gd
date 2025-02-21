@@ -27,9 +27,9 @@ except:
     pass
 from PyPore.core import *
 
-import pyximport
-pyximport.install( setup_args={'include_dirs':np.get_include()})
-from PyPore.cparsers import FastStatSplit
+##import pyximport
+##pyximport.install( setup_args={'include_dirs':np.get_include()})
+##from PyPore.cparsers import FastStatSplit
 
 import json
 

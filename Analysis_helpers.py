@@ -305,13 +305,16 @@ class FilterDerivativeParser( parser ):
     '''
 
     def __init__( self, low_threshold=0.025, high_threshold=0.12, cutoff_freq=10000.,
-        sampling_freq=1.e5 ,openholder=None,openlimits=[0.8,1.2]):
+        sampling_freq=1.e5, blockade_fraction=0.8, event_deepest=0.3, event_highest=0.5, openholder=None,openlimits=[0.8,1.2]):
         self.low_threshold = low_threshold
         self.high_threshold = high_threshold
         self.cutoff_freq = cutoff_freq
         self.sampling_freq = sampling_freq
         self.openholder=openholder
         self.openlimits=openlimits
+        self.blockade_fraction=blockade_fraction
+        self.event_deepest=event_deepest
+        self.event_highest=event_highest
 
     def parse( self, current ):
         '''
@@ -347,7 +350,7 @@ class FilterDerivativeParser( parser ):
             segment = deriv[ start:end ] # Save all derivatives in that block to a segment
             segmentCurrent= filtered_current[start:end]
             
-            if (np.argmax( segment ) > self.high_threshold*I_0_MLE) and (np.amax(segmentCurrent)>I_0_MLE*0.8): # If the maximum derivative in that block is above a threshold..
+            if (np.argmax( segment ) > self.high_threshold*I_0_MLE) and (np.amax(segmentCurrent)>I_0_MLE*self.blockade_fraction): # If the maximum derivative in that block is above a threshold..
                 split_points = np.concatenate( ( split_points, [ start, end ] ) ) # Save the edges of the segment 
                 # Now you have the edges of all transitions saved, and so the states are the current between these transitions
         tics = np.concatenate( ( split_points, [ current.shape[0] ] ) )
@@ -363,7 +366,10 @@ class FilterDerivativeParser( parser ):
             event.I_0=I_0
         if self.openholder is not None: 
             self.openholder.append(conCurrents)
-        return [event for event in events if event.min< I_0_MLE*0.30 and event.max<I_0_MLE*0.5]
+        if self.event_deepest != None and self.event_highest != None:
+            return [event for event in events if event.min< I_0_MLE*self.event_deepest and event.max<I_0_MLE*self.event_highest]
+        else:
+            return [event for event in events]
 
     def set_params( self ):
         self.low_thresh = float( self.lowThreshInput.text() )
@@ -406,7 +412,214 @@ class FilterDerivativeParser( parser ):
              
 
             
+class MYFilterDerivativeSegmenter( parser ):
+    '''
+    This parser will segment an event using a filter-derivative method. It will
+    first apply a bessel filter at a certain cutoff to the current, then it will
+    take the derivative of that, and segment when the derivative passes a
+    threshold.
+    '''
 
+    def __init__( self, low_threshold=0.025, high_threshold=0.12, cutoff_freq=10000.,
+        sampling_freq=1.e5,blockade_fraction=0.8,openholder=None,openlimits=[0.8,1.2]):
+        self.low_threshold=low_threshold
+        self.high_threshold=high_threshold
+        self.cutoff_freq=cutoff_freq
+        self.sampling_freq=sampling_freq
+        self.openholder=openholder
+        self.openlimits=openlimits
+        self.blockade_fraction=blockade_fraction
+
+    def parse( self, current ):
+        '''
+        Apply the filter-derivative method to filter the ionic current.
+        '''
+        binCount=100
+        edges=np.histogram(current,np.histogram_bin_edges(current,binCount))
+        currentCpy=np.array(current,copy=True)
+        currentCpy=currentCpy[((edges[1][-1]/2)<currentCpy)]
+        upperEdges=np.histogram(currentCpy,np.histogram_bin_edges(currentCpy,int(binCount/2)))
+        i_peak=np.argmax(upperEdges[0])
+        I_0_MLE=np.mean(upperEdges[1][i_peak-1:i_peak+3])
+        # Filter the current using a first order Bessel filter twice, one in
+        # both directions to preserve phase
+        from scipy import signal
+        nyquist = self.sampling_freq / 2.
+        b, a = signal.bessel( 1, self.cutoff_freq / nyquist, btype='low', analog=0, output='ba' )
+        filtered_current = signal.filtfilt( b, a, np.array( current ).copy() )
+        #print(filtered_current)
+        #print(current)
+        # Take the derivative
+        deriv = np.abs( np.diff( filtered_current ) )
+        deriv = deriv*I_0_MLE
+        #purederiv = np.diff( filtered_current )
+        # Find the edges of the blocks which fulfill pass the lower threshold
+        blocks = np.where( deriv > self.low_threshold*I_0_MLE, 1, 0 )
+        blocks_index = np.where( blocks == 1 )[0]
+        combined_blocks_index = []
+        combined = []
+        for idx, j in np.ndenumerate(blocks_index):
+            if idx[0] == 0:
+                combined.append(j)
+            elif blocks_index[-1] == j:
+                combined.append(j)
+                combined_blocks_index.append(combined)
+            elif blocks_index[idx[0]-1]+1 == j: 
+                combined.append(j)
+            else:
+                combined_blocks_index.append(combined)
+                combined = [j]
+        
+        accepted_blocks = []
+        removed_blocks = []
+        
+        for idx, block in enumerate(combined_blocks_index):
+            fc = filtered_current[block]
+            if len(block) == 1:
+                removed_blocks.append(block)
+            if (block != combined_blocks_index[-1] and block != combined_blocks_index[0] and np.max(fc) <= I_0_MLE*0.93 or np.std(fc) < I_0_MLE*0.05 ):
+                removed_blocks.append(block)
+            else:
+                accepted_blocks.append(block)
+        
+        for removed in removed_blocks:
+            np.put(blocks, removed, np.zeros(1))
+        
+        Blocks = np.where(blocks > 0, 1, blocks)
+        
+        floating_blocks = []
+        final_blocks = []
+        for idx, block in enumerate(accepted_blocks):
+            if block == accepted_blocks[0]:
+                fc = filtered_current[block[0]] - filtered_current[block[-1]]
+                fc_after = filtered_current[accepted_blocks[idx+1][0]] - filtered_current[accepted_blocks[idx+1][-1]]
+                if ( (fc > 0).any() and (fc*fc_after > 0).any() ):
+                    floating_blocks.append(block) 
+                if (fc < 0).any():
+                    floating_blocks.append(block)
+                else:
+                    final_blocks.append(block)
+        
+            if block == accepted_blocks[-1]:
+                fc = filtered_current[block[0]] - filtered_current[block[-1]]
+                fc_prior = filtered_current[accepted_blocks[idx-1][0]] - filtered_current[accepted_blocks[idx-1][-1]]
+                if ( (fc < 0).any() and (fc*fc_prior > 0).any() ):
+                    floating_blocks.append(block)
+                if ( (fc > 0).any() ):
+                    floating_blocks.append(block)
+                else:
+                    final_blocks.append(block)
+        
+            if block != accepted_blocks[-1] and block != accepted_blocks[0]:
+                fc = filtered_current[block[0]] - filtered_current[block[-1]]
+                fc_prior = filtered_current[accepted_blocks[idx-1][0]] - filtered_current[accepted_blocks[idx-1][-1]]
+                fc_after = filtered_current[accepted_blocks[idx+1][0]] - filtered_current[accepted_blocks[idx+1][-1]]
+                between_current_before = np.max(filtered_current[accepted_blocks[idx-1][-1]:block[0]])
+                between_current_after = np.max(filtered_current[block[-1]:accepted_blocks[idx+1][0]])
+                
+                if ( (fc*fc_prior < 0).any() and (fc*fc_after < 0).any() 
+                   and (between_current_before < I_0_MLE or between_current_after < I_0_MLE)):
+                    final_blocks.append(block)
+                if ( (fc < 0).any() and (fc*fc_prior < 0).any() and (fc*fc_after > 0).any() and (fc_after < 0).any() ):
+                    final_blocks.append(block)
+                if ( (fc < 0).any() and (fc*fc_prior < 0).any() and (fc*fc_after < 0).any() and (fc_after > 0).any() ):
+                    final_blocks.append(block)
+                if ( (fc > 0).any() and (fc*fc_prior > 0).any() and (fc*fc_after < 0).any() and (fc_after < 0).any() 
+                    and between_current_after < I_0_MLE ):
+                    final_blocks.append(block)
+                if ( (fc > 0).any() and (fc*fc_prior < 0).any() and (fc*fc_after < 0).any() and (fc_after < 0).any() ):
+                    final_blocks.append(block) #Possibly change
+        
+                if ( (fc < 0).any() and (fc*fc_prior > 0).any() and (fc*fc_after < 0).any() and (fc_after > 0).any() ):
+                    floating_blocks.append(block)
+                if ( (fc > 0).any() and (fc*fc_prior < 0).any() and ((fc*fc_after > 0).any()) and (fc_after > 0).any() ):
+                    floating_blocks.append(block)
+                if ( (fc < 0).any() and (fc*fc_prior > 0).any() and (fc*fc_after > 0).any() and (fc_after < 0).any() ):
+                    floating_blocks.append(block)
+                if ( (fc > 0).any() and (fc*fc_prior > 0).any() and ((fc*fc_after > 0).any()) and (fc_after > 0).any() ):
+                    floating_blocks.append(block)
+        
+        for removed in floating_blocks:
+            np.put(Blocks, removed, np.zeros(1))
+        
+        for accepted in final_blocks:
+            if len(accepted) > 2:
+                nonedges = accepted[1:-1]
+                np.put(Blocks, nonedges, np.zeros(1))
+            else:
+                print("Oh No: " + str(accepted))
+        
+        block_edges = np.where(Blocks > 0, 1, Blocks)
+        ones_index = np.where( block_edges == 1 )[0]
+        
+        block_edges_2 = np.array(block_edges,copy=True)
+        ones_index_2 = np.where( block_edges_2 == 1 )[0] 
+        
+        for start, end in zip( ones_index[0:-1:4], ones_index[3::4] ): # For all pairs of edges for a block.
+            np.put(block_edges, start, np.zeros(1))
+            np.put(block_edges, end, np.zeros(1))
+        
+        for start, end in zip( ones_index_2[1:-1:4], ones_index_2[2::4] ): # For all pairs of edges for a block.
+            np.put(block_edges_2, start, np.zeros(1))
+            np.put(block_edges_2, end, np.zeros(1))
+        np.put(block_edges_2, ones_index_2[0], np.zeros(1))
+        
+        tics = np.where( block_edges == 1 )[0] 
+        tics_2 = np.where( block_edges_2 == 1 )[0] #added
+
+        # Split points are points in the each block which pass the high
+        # threshold, with a maximum of one per block 
+        split_points = [0] 
+
+        for start, end in zip( tics[0:-1:2], tics[1::2] ): # For all pairs of edges for a block..
+            segment = deriv[ start:end ] # Save all derivatives in that block to a segment
+            segmentCurrent= filtered_current[start:end]
+            ###print("START : " + str(start) + " " + "END: " + str(end))
+    
+            #if (np.argmax( segment ) > self.high_threshold*I_0_MLE) and (np.amax(segmentCurrent)>I_0_MLE*0.8): # If the maximum derivative in that block is above a threshold..
+            split_points = np.concatenate( ( split_points, [ start, end ] ) ) # Save the edges of the segment 
+                # Now you have the edges of all transitions saved, and so the states are the current between these transitions
+        tics = np.concatenate( ( split_points, [ current.shape[0] ] ) )
+        
+        split_points_2 = [0] #added
+        
+        for start, end in zip( tics_2[0:-1:2], tics_2[1::2] ): # For all pairs of edges for a block..#added
+            segment = deriv[ start:end ] # Save all derivatives in that block to a segment
+            segmentCurrent= filtered_current[start:end]
+            ###print("START : " + str(start) + " " + "END: " + str(end))
+            split_points_2 = np.concatenate( ( split_points_2, [ start, end ] ) )
+        tics_2 = np.concatenate( ( split_points_2, [ current.shape[0] ] ) ) #added
+        
+        open_current=[ Segment( current=current[ tics_2[i]:tics_2[i+1] ], start=tics_2[i],duration=tics_2[i+1]-tics_2[i] ) 
+                    for i in range( 1, len(tics_2)-1, 2 ) ]
+        baseline_current = []
+        baseline_current = [event.current for event in open_current]
+        conCurrents=np.hstack(baseline_current)
+        #I_0 = np.mean(conCurrents)
+        #for event in open_current:
+        #    event.I_0=I_0
+        if self.openholder is not None:
+            self.openholder.append(conCurrents)
+        #tics = map( int, tics )
+        #print(tics)
+        #for i in range( 1, len(tics)-1, 2 ):
+            #print(str(split_points[i]) + " : " + str(split_points[i+1]))
+        events=[ Segment( current=current[ tics[i]:tics[i+1] ], start=tics[i],duration=tics[i+1]-tics[i] ) 
+                    for i in range( 1, len(tics)-1, 2 ) ]
+        ##################
+        currents=[]
+        currents = [event.current for event in events ]#if event.min>I_0_MLE*self.openlimits[0] and event.max<I_0_MLE*self.openlimits[1]]
+        conCurrents=np.hstack(currents)
+        I_0 = np.mean(conCurrents)#find I_0 for the trace
+        for event in events:
+            event.I_0 = I_0_MLE #Each event will have the mean of the baseline associated with it
+            #event.I_0=I_0
+        #if self.openholder is not None: #added to open current above
+        #    self.openholder.append(conCurrents)
+        ##################
+        
+        #return [event for event in events] #if event.min < I_0_MLE*0.70 and event.max < I_0_MLE*0.95] #if event.min < I_0_MLE*0.10 and event.max<I_0_MLE*0.95]
+        return [event for event in events if event.mean < I_0_MLE*self.blockade_fraction] 
 
 
 
